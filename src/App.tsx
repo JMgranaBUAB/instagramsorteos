@@ -1,28 +1,61 @@
 import React, { useState, useEffect } from 'react';
-import { Instagram, AlertCircle } from 'lucide-react';
+import { Instagram, AlertCircle, Wifi, WifiOff } from 'lucide-react';
 import { SearchBar } from './components/SearchBar';
 import { PostCard, InstagramPost } from './components/PostCard';
 import { LoadingSpinner } from './components/LoadingSpinner';
 import { EmptyState } from './components/EmptyState';
 import { StatsBar } from './components/StatsBar';
-import { generateMockPosts } from './data/mockData';
+import { StorageStats } from './components/StorageStats';
+import { InstagramService } from './services/instagramService';
 
 function App() {
   const [posts, setPosts] = useState<InstagramPost[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [currentHashtag, setCurrentHashtag] = useState<string>('');
+  const [error, setError] = useState<string>('');
+  const [isOnline, setIsOnline] = useState(true);
+
+  const instagramService = InstagramService.getInstance();
 
   const handleSearch = async (hashtag: string) => {
+    // Verificar si hay datos en caché primero
+    if (instagramService.hasCachedData(hashtag)) {
+      console.log('Loading from cache...');
+      const cachedPosts = instagramService.getCachedPosts(hashtag);
+      setPosts(cachedPosts);
+      setCurrentHashtag(hashtag);
+      setError('');
+      return;
+    }
+
     setIsLoading(true);
+    setError('');
     setCurrentHashtag(hashtag);
     
-    // Simular llamada a API
-    setTimeout(() => {
-      const mockPosts = generateMockPosts(hashtag);
-      setPosts(mockPosts);
+    try {
+      const realPosts = await instagramService.searchByHashtag(hashtag);
+      setPosts(realPosts);
+    } catch (err) {
+      console.error('Error fetching Instagram posts:', err);
+      setError('No se pudieron cargar las publicaciones. Mostrando datos desde caché si están disponibles.');
+      setPosts([]);
+    } finally {
       setIsLoading(false);
-    }, 2000);
+    }
   };
+
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
 
   useEffect(() => {
     // Cargar datos iniciales
@@ -47,9 +80,28 @@ function App() {
               </div>
             </div>
             
-            <div className="hidden md:flex items-center space-x-2 px-4 py-2 bg-amber-50 border border-amber-200 rounded-xl">
-              <AlertCircle className="w-4 h-4 text-amber-600" />
-              <span className="text-sm text-amber-700 font-medium">Demo con datos de ejemplo</span>
+            <div className="hidden md:flex items-center space-x-4">
+              <div className={`flex items-center space-x-2 px-3 py-2 rounded-xl ${
+                isOnline 
+                  ? 'bg-green-50 border border-green-200' 
+                  : 'bg-red-50 border border-red-200'
+              }`}>
+                {isOnline ? (
+                  <Wifi className="w-4 h-4 text-green-600" />
+                ) : (
+                  <WifiOff className="w-4 h-4 text-red-600" />
+                )}
+                <span className={`text-sm font-medium ${
+                  isOnline ? 'text-green-700' : 'text-red-700'
+                }`}>
+                  {isOnline ? 'Conectado' : 'Sin conexión'}
+                </span>
+              </div>
+              
+              <div className="flex items-center space-x-2 px-3 py-2 bg-blue-50 border border-blue-200 rounded-xl">
+                <AlertCircle className="w-4 h-4 text-blue-600" />
+                <span className="text-sm text-blue-700 font-medium">Datos reales de Instagram</span>
+              </div>
             </div>
           </div>
         </div>
@@ -71,6 +123,24 @@ function App() {
 
         {/* Results Section */}
         <div className="space-y-8">
+          {error && (
+            <div className="bg-red-50 border border-red-200 rounded-xl p-6">
+              <div className="flex items-center space-x-3">
+                <AlertCircle className="w-6 h-6 text-red-600 flex-shrink-0" />
+                <div>
+                  <h3 className="text-lg font-semibold text-red-800">Error al cargar publicaciones</h3>
+                  <p className="text-red-700 mt-1">{error}</p>
+                  <button 
+                    onClick={() => handleSearch(currentHashtag)}
+                    className="mt-3 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                  >
+                    Reintentar
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+          
           {isLoading ? (
             <LoadingSpinner />
           ) : posts.length > 0 ? (
@@ -85,7 +155,10 @@ function App() {
               
               {/* Load More Button */}
               <div className="text-center pt-8">
-                <button className="px-8 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl hover:from-purple-700 hover:to-pink-700 transition-all transform hover:scale-105 font-medium">
+                <button 
+                  onClick={() => handleSearch(currentHashtag)}
+                  className="px-8 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl hover:from-purple-700 hover:to-pink-700 transition-all transform hover:scale-105 font-medium"
+                >
                   Cargar más publicaciones
                 </button>
               </div>
@@ -96,16 +169,25 @@ function App() {
         </div>
 
         {/* Info Footer */}
-        <div className="mt-16 p-6 bg-white rounded-2xl border border-gray-100">
-          <div className="text-center space-y-3">
-            <h3 className="text-lg font-semibold text-gray-800">Implementación completa</h3>
-            <p className="text-gray-600 max-w-3xl mx-auto">
-              Esta es una demostración con datos de ejemplo. Para la implementación real, se necesitaría integrar con la API de Instagram o usar edge functions para hacer web scraping de manera segura, respetando los términos de servicio de la plataforma.
-            </p>
-            <div className="flex flex-wrap justify-center gap-4 pt-4">
-              <span className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-medium">API de Instagram</span>
-              <span className="px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm font-medium">Edge Functions</span>
-              <span className="px-3 py-1 bg-purple-100 text-purple-800 rounded-full text-sm font-medium">Supabase Backend</span>
+        <div className="mt-16 space-y-8">
+          <StorageStats onClearCache={() => {
+            setPosts([]);
+            setCurrentHashtag('');
+          }} />
+          
+          <div className="p-6 bg-white rounded-2xl border border-gray-100">
+            <div className="text-center space-y-3">
+              <h3 className="text-lg font-semibold text-gray-800">Almacenamiento Local Inteligente</h3>
+              <p className="text-gray-600 max-w-3xl mx-auto">
+                Esta aplicación guarda automáticamente las publicaciones en tu navegador para acceso rápido. 
+                Los datos se mantienen actualizados y se limpian automáticamente después de 7 días.
+              </p>
+              <div className="flex flex-wrap justify-center gap-4 pt-4">
+                <span className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-medium">LocalStorage</span>
+                <span className="px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm font-medium">Caché Inteligente</span>
+                <span className="px-3 py-1 bg-purple-100 text-purple-800 rounded-full text-sm font-medium">Acceso Offline</span>
+                <span className="px-3 py-1 bg-orange-100 text-orange-800 rounded-full text-sm font-medium">Auto-limpieza</span>
+              </div>
             </div>
           </div>
         </div>
